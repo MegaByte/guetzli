@@ -18,6 +18,7 @@
 #define GUETZLI_FAST_LOG_H_
 
 #include <math.h>
+#include <cstdint>
 
 namespace guetzli {
 

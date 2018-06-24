@@ -16,7 +16,6 @@
 
 #include "guetzli/jpeg_data_reader.h"
 
-#include <algorithm>
 #include <stdio.h>
 #include <string.h>
 
@@ -63,10 +62,6 @@ namespace {
     return false;                                                       \
   }
 
-inline int SignedLeftshift(int v, int s) {
-  return (v >= 0) ? (v << s) : -((-v) << s);
-}
-
 // Returns ceil(a/b).
 inline int DivCeil(int a, int b) {
   return (a + b - 1) / b;
@@ -109,7 +104,7 @@ bool ProcessSOF(const uint8_t* data, const size_t len,
 
   // Read sampling factors and quant table index for each component.
   std::vector<bool> ids_seen(256, false);
-  for (size_t i = 0; i < jpg->components.size(); ++i) {
+  for (int i = 0; i < jpg->components.size(); ++i) {
     const int id = ReadUint8(data, pos);
     if (ids_seen[id]) {   // (cf. section B.2.2, syntax of Ci)
       fprintf(stderr, "Duplicate ID %d in SOF.\n", id);
@@ -136,7 +131,7 @@ bool ProcessSOF(const uint8_t* data, const size_t len,
   jpg->MCU_cols = DivCeil(jpg->width, jpg->max_h_samp_factor * 8);
   // Compute the block dimensions for each component.
   if (mode == JPEG_READ_ALL) {
-    for (size_t i = 0; i < jpg->components.size(); ++i) {
+    for (int i = 0; i < jpg->components.size(); ++i) {
       JPEGComponent* c = &jpg->components[i];
       if (jpg->max_h_samp_factor % c->h_samp_factor != 0 ||
           jpg->max_v_samp_factor % c->v_samp_factor != 0) {
@@ -172,8 +167,7 @@ bool ProcessSOS(const uint8_t* data, const size_t len, size_t* pos,
   VERIFY_LEN(3);
   size_t marker_len = ReadUint16(data, pos);
   int comps_in_scan = ReadUint8(data, pos);
-  VERIFY_INPUT(comps_in_scan, 1, static_cast<int>(jpg->components.size()),
-               COMPS_IN_SCAN);
+  VERIFY_INPUT(comps_in_scan, 1, jpg->components.size(), COMPS_IN_SCAN);
 
   JPEGScanInfo scan_info;
   scan_info.components.resize(comps_in_scan);
@@ -188,7 +182,7 @@ bool ProcessSOS(const uint8_t* data, const size_t len, size_t* pos,
     }
     ids_seen[id] = true;
     bool found_index = false;
-    for (size_t j = 0; j < jpg->components.size(); ++j) {
+    for (int j = 0; j < jpg->components.size(); ++j) {
       if (jpg->components[j].id == id) {
         scan_info.components[i].comp_idx = j;
         found_index = true;
@@ -219,7 +213,7 @@ bool ProcessSOS(const uint8_t* data, const size_t len, size_t* pos,
   for (int i = 0; i < comps_in_scan; ++i) {
     bool found_dc_table = false;
     bool found_ac_table = false;
-    for (size_t j = 0; j < jpg->huffman_code.size(); ++j) {
+    for (int j = 0; j < jpg->huffman_code.size(); ++j) {
       int slot_id = jpg->huffman_code[j].slot_id;
       if (slot_id == scan_info.components[i].dc_tbl_idx) {
         found_dc_table = true;
@@ -400,8 +394,8 @@ bool ProcessAPP(const uint8_t* data, const size_t len, size_t* pos,
   VERIFY_INPUT(marker_len, 2, 65535, MARKER_LEN);
   VERIFY_LEN(marker_len - 2);
   // Save the marker type together with the app data.
-  std::string app_str(reinterpret_cast<const char*>(
-      &data[*pos - 3]), marker_len + 1);
+  std::string app_str(reinterpret_cast<const char*>(&data[*pos - 3]),
+                      marker_len + 1);
   *pos += marker_len - 2;
   jpg->app_data.push_back(app_str);
   return true;
@@ -414,8 +408,8 @@ bool ProcessCOM(const uint8_t* data, const size_t len, size_t* pos,
   size_t marker_len = ReadUint16(data, pos);
   VERIFY_INPUT(marker_len, 2, 65535, MARKER_LEN);
   VERIFY_LEN(marker_len - 2);
-  std::string com_str(reinterpret_cast<const char*>(
-      &data[*pos - 2]), marker_len);
+  std::string com_str(reinterpret_cast<const char*>(&data[*pos - 2]),
+                      marker_len);
   *pos += marker_len - 2;
   jpg->com_data.push_back(com_str);
   return true;
@@ -524,7 +518,7 @@ int ReadSymbol(const HuffmanTableEntry* table, BitReaderState* br) {
 // Returns the DC diff or AC value for extra bits value x and prefix code s.
 // See Tables F.1 and F.2 of the spec.
 int HuffExtend(int x, int s) {
-  return (x < (1 << (s - 1)) ? x - (1 << s) + 1 : x);
+  return (x < (1 << (s - 1)) ? x + int((~0u) << s) + 1 : x);
 }
 
 // Decodes one 8x8 block of DCT coefficients from the bit stream.
@@ -551,7 +545,7 @@ bool DecodeDCTBlock(const HuffmanTableEntry* dc_huff,
       s = HuffExtend(r, s);
     }
     s += *last_dc_coeff;
-    const int dc_coeff = SignedLeftshift(s, Al);
+    const int dc_coeff = s << Al;
     coeffs[0] = dc_coeff;
     if (dc_coeff != coeffs[0]) {
       fprintf(stderr, "Invalid DC coefficient %d\n", dc_coeff);
@@ -594,7 +588,7 @@ bool DecodeDCTBlock(const HuffmanTableEntry* dc_huff,
       }
       r = br->ReadBits(s);
       s = HuffExtend(r, s);
-      coeffs[kJPEGNaturalOrder[k]] = SignedLeftshift(s, Al);
+      coeffs[kJPEGNaturalOrder[k]] = s << Al;
     } else if (r == 15) {
       k += 15;
     } else {
@@ -632,7 +626,7 @@ bool RefineDCTBlock(const HuffmanTableEntry* ac_huff,
     return true;
   }
   int p1 = 1 << Al;
-  int m1 = -(1 << Al);
+  int m1 = (-1) << Al;
   int k = Ss;
   int r;
   int s;
@@ -788,7 +782,7 @@ bool ProcessScan(const uint8_t* data, const size_t len,
   const int Se = is_progressive ? scan_info->Se : 63;
   const uint16_t scan_bitmask = Ah == 0 ? (0xffff << Al) : (1u << Al);
   const uint16_t refinement_bitmask = (1 << Al) - 1;
-  for (size_t i = 0; i < scan_info->components.size(); ++i) {
+  for (int i = 0; i < scan_info->components.size(); ++i) {
     int comp_idx = scan_info->components[i].comp_idx;
     for (int k = Ss; k <= Se; ++k) {
       if (scan_progression[comp_idx][k] & scan_bitmask) {
@@ -835,7 +829,7 @@ bool ProcessScan(const uint8_t* data, const size_t len,
         --restarts_to_go;
       }
       // Decode one MCU.
-      for (size_t i = 0; i < scan_info->components.size(); ++i) {
+      for (int i = 0; i < scan_info->components.size(); ++i) {
         JPEGComponentScanInfo* si = &scan_info->components[i];
         JPEGComponent* c = &jpg->components[si->comp_idx];
         const HuffmanTableEntry* dc_lut =
@@ -888,10 +882,10 @@ bool ProcessScan(const uint8_t* data, const size_t len,
 // Changes the quant_idx field of the components to refer to the index of the
 // quant table in the jpg->quant array.
 bool FixupIndexes(JPEGData* jpg) {
-  for (size_t i = 0; i < jpg->components.size(); ++i) {
+  for (int i = 0; i < jpg->components.size(); ++i) {
     JPEGComponent* c = &jpg->components[i];
     bool found_index = false;
-    for (size_t j = 0; j < jpg->quant.size(); ++j) {
+    for (int j = 0; j < jpg->quant.size(); ++j) {
       if (jpg->quant[j].index == c->quant_idx) {
         c->quant_idx = j;
         found_index = true;
@@ -899,7 +893,7 @@ bool FixupIndexes(JPEGData* jpg) {
       }
     }
     if (!found_index) {
-      fprintf(stderr, "Quantization table with index %zd not found\n",
+      fprintf(stderr, "Quantization table with index %d not found\n",
               c->quant_idx);
       jpg->error = JPEG_QUANT_TABLE_NOT_FOUND;
       return false;
@@ -944,6 +938,7 @@ bool ReadJpeg(const uint8_t* data, const size_t len, JpegReadMode mode,
   std::vector<HuffmanTableEntry> dc_huff_lut(lut_size);
   std::vector<HuffmanTableEntry> ac_huff_lut(lut_size);
   bool found_sof = false;
+  bool found_dht = false;
   uint16_t scan_progression[kMaxComponents][kDCTBlockSize] = { { 0 } };
 
   bool is_progressive = false;   // default
@@ -954,8 +949,7 @@ bool ReadJpeg(const uint8_t* data, const size_t len, JpegReadMode mode,
       // Add a fake marker to indicate arbitrary in-between-markers data.
       jpg->marker_order.push_back(0xff);
       jpg->inter_marker_data.push_back(
-          std::string(reinterpret_cast<const char*>(&data[pos]),
-                                      num_skipped));
+          std::string(reinterpret_cast<const char*>(&data[pos]), num_skipped));
       pos += num_skipped;
     }
     EXPECT_MARKER();
@@ -972,6 +966,7 @@ bool ReadJpeg(const uint8_t* data, const size_t len, JpegReadMode mode,
         break;
       case 0xc4:
         ok = ProcessDHT(data, len, mode, &dc_huff_lut, &ac_huff_lut, &pos, jpg);
+        found_dht = true;
         break;
       case 0xd0:
       case 0xd1:
@@ -1034,7 +1029,7 @@ bool ReadJpeg(const uint8_t* data, const size_t len, JpegReadMode mode,
       return false;
     }
     jpg->marker_order.push_back(marker);
-    if (mode == JPEG_READ_HEADER && found_sof) {
+    if (mode == JPEG_READ_HEADER && found_sof && found_dht) {
       break;
     }
   } while (marker != 0xd9);
@@ -1071,8 +1066,7 @@ bool ReadJpeg(const uint8_t* data, const size_t len, JpegReadMode mode,
   return true;
 }
 
-bool ReadJpeg(const std::string& data, JpegReadMode mode,
-              JPEGData* jpg) {
+bool ReadJpeg(const std::string& data, JpegReadMode mode, JPEGData* jpg) {
   return ReadJpeg(reinterpret_cast<const uint8_t*>(data.data()),
                   static_cast<const size_t>(data.size()),
                   mode, jpg);

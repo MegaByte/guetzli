@@ -16,19 +16,16 @@
 
 #include "guetzli/butteraugli_comparator.h"
 
-#include <algorithm>
-
-#include "guetzli/debug_print.h"
 #include "guetzli/gamma_correct.h"
 #include "guetzli/score.h"
 
 namespace guetzli {
 
 namespace {
-using ::butteraugli::ImageF;
-using ::butteraugli::CreatePlanes;
-using ::butteraugli::PlanesFromPacked;
-using ::butteraugli::PackedFromPlanes;
+using butteraugli::ImageF;
+using butteraugli::CreatePlanes;
+using butteraugli::PlanesFromPacked;
+using butteraugli::PackedFromPlanes;
 
 std::vector<ImageF> LinearRgb(const size_t xsize, const size_t ysize,
                               const std::vector<uint8_t>& rgb) {
@@ -49,29 +46,54 @@ std::vector<ImageF> LinearRgb(const size_t xsize, const size_t ysize,
 }  // namespace
 
 ButteraugliComparator::ButteraugliComparator(const int width, const int height,
-                                             const std::vector<uint8_t>* rgb,
-                                             const float target_distance,
-                                             ProcessStats* stats)
+                                             const std::vector<uint8_t>& rgb,
+                                             const float target_distance)
     : width_(width),
       height_(height),
       target_distance_(target_distance),
-      rgb_orig_(*rgb),
-      comparator_(LinearRgb(width_, height_, *rgb)),
+      comparator_(LinearRgb(width_, height_, rgb), 1.0),
       distance_(0.0),
-      stats_(stats) {}
+      distmap_(width_ * height_) {
+  std::vector<butteraugli::ImageF> rgb_linear_pregamma =
+      LinearRgb(width, height, rgb);
+  const int block_w = (width_ + 7) / 8;
+  const int block_h = (height_ + 7) / 8;
+  const int nblocks = block_w * block_h;
+  per_block_pregamma_.resize(nblocks);
+  for (int block_y = 0, bx = 0; block_y < block_h; ++block_y) {
+    for (int block_x = 0; block_x < block_w; ++block_x, ++bx) {
+      per_block_pregamma_[bx].resize(3, std::vector<float>(kDCTBlockSize));
+      for (int iy = 0, i = 0; iy < 8; ++iy) {
+        for (int ix = 0; ix < 8; ++ix, ++i) {
+          int x = std::min(8 * block_x + ix, width_ - 1);
+          int y = std::min(8 * block_y + iy, height_ - 1);
+          for (int c = 0; c < 3; ++c) {
+            const float* const BUTTERAUGLI_RESTRICT row_linear =
+                rgb_linear_pregamma[c].Row(y);
+            per_block_pregamma_[bx][c][i] = row_linear[x];
+          }
+        }
+      }
+      per_block_pregamma_[bx] =
+          butteraugli::PackedFromPlanes(butteraugli::OpsinDynamicsImage(
+               butteraugli::PlanesFromPacked(8, 8, per_block_pregamma_[bx])));
+    }
+  }
+  rgb_linear_pregamma =
+      butteraugli::OpsinDynamicsImage(rgb_linear_pregamma);
+  std::vector<ImageF> dummy;
+  butteraugli::Mask(rgb_linear_pregamma, rgb_linear_pregamma,
+                    &mask_xyz_, &dummy);
+}
 
 void ButteraugliComparator::Compare(const OutputImage& img) {
-  std::vector<ImageF> rgb0 =
-      ::butteraugli::OpsinDynamicsImage(LinearRgb(width_, height_, rgb_orig_));
   std::vector<std::vector<float> > rgb(3, std::vector<float>(width_ * height_));
   img.ToLinearRGB(&rgb);
   const std::vector<ImageF> rgb_planes = PlanesFromPacked(width_, height_, rgb);
-  std::vector<float>(width_ * height_).swap(distmap_);
   ImageF distmap;
   comparator_.Diffmap(rgb_planes, distmap);
   CopyToPacked(distmap, &distmap_);
-  distance_ = ::butteraugli::ButteraugliScoreFromDiffmap(distmap);
-  GUETZLI_LOG(stats_, " BA[100.00%%] D[%6.4f]", distance_);
+  distance_ = butteraugli::ButteraugliScoreFromDiffmap(distmap);
 }
 
 namespace {
@@ -265,7 +287,7 @@ void FFT8(Complex* a) {
   FFT4(a);
 
   // Reorder to the correct output order.
-  // TODO(szabadka): Modify the above computation so that this is not needed.
+  // TODO(user): Modify the above computation so that this is not needed.
   Complex tmp = a[2];
   a[2] = a[3];
   a[3] = a[5];
@@ -277,7 +299,7 @@ void FFT8(Complex* a) {
 }
 
 // Same as FFT8, but all inputs are real.
-// TODO(szabadka): Since this does not need to be in-place, maybe there is a
+// TODO(user): Since this does not need to be in-place, maybe there is a
 // faster FFT than this one, which is derived from DJB's in-place complex FFT.
 void RealFFT8(const double* in, Complex* out) {
   double t1, t2, t3, t5, t6, t7, t8;
@@ -341,7 +363,7 @@ void RealFFT8(const double* in, Complex* out) {
   out[1].imag = 0;
 
   // Reorder to the correct output order.
-  // TODO(szabadka): Modify the above computation so that this is not needed.
+  // TODO(user): Modify the above computation so that this is not needed.
   Complex tmp = out[2];
   out[2] = out[3];
   out[3] = out[5];
@@ -412,62 +434,18 @@ void ButteraugliBlockDiff(double xyb0[3 * kBlockSize],
 
 }  // namespace
 
-void ButteraugliComparator::StartBlockComparisons() {
-  std::vector<ImageF> dummy(3);
-  std::vector<ImageF> rgb0 =
-      ::butteraugli::OpsinDynamicsImage(LinearRgb(width_, height_, rgb_orig_));
-  ::butteraugli::Mask(rgb0, rgb0,
-                      &mask_xyz_, &dummy);
-}
-
-void ButteraugliComparator::FinishBlockComparisons() {
-  mask_xyz_.clear();
-}
-
-void ButteraugliComparator::SwitchBlock(int block_x, int block_y,
-                                        int factor_x, int factor_y) {
-  block_x_ = block_x;
-  block_y_ = block_y;
-  factor_x_ = factor_x;
-  factor_y_ = factor_y;
-  per_block_pregamma_.resize(factor_x_ * factor_y_);
-  const double* lut = Srgb8ToLinearTable();
-  for (int off_y = 0, bx = 0; off_y < factor_y_; ++off_y) {
-    for (int off_x = 0; off_x < factor_x_; ++off_x, ++bx) {
-      per_block_pregamma_[bx].resize(3, std::vector<float>(kDCTBlockSize));
-      int block_xx = block_x_ * factor_x_ + off_x;
-      int block_yy = block_y_ * factor_y_ + off_y;
-      for (int iy = 0, i = 0; iy < 8; ++iy) {
-        for (int ix = 0; ix < 8; ++ix, ++i) {
-          int x = std::min(8 * block_xx + ix, width_ - 1);
-          int y = std::min(8 * block_yy + iy, height_ - 1);
-          int px = y * width_ + x;
-          for (int c = 0; c < 3; ++c) {
-            per_block_pregamma_[bx][c][i] = lut[rgb_orig_[3 * px + c]];
-          }
-        }
-      }
-      per_block_pregamma_[bx] =
-          ::butteraugli::PackedFromPlanes(::butteraugli::OpsinDynamicsImage(
-              ::butteraugli::PlanesFromPacked(8, 8, per_block_pregamma_[bx])));
-    }
-  }
-}
-
-double ButteraugliComparator::CompareBlock(const OutputImage& img,
-                                           int off_x, int off_y) const {
-  int block_x = block_x_ * factor_x_ + off_x;
-  int block_y = block_y_ * factor_y_ + off_y;
+double ButteraugliComparator::CompareBlock(
+    const OutputImage& img, int block_x, int block_y) const {
   int xmin = 8 * block_x;
   int ymin = 8 * block_y;
-  int block_ix = off_y * factor_x_ + off_x;
+  int block_ix = block_y * ((width_ + 7) / 8) + block_x;
   const std::vector<std::vector<float> >& rgb0 =
       per_block_pregamma_[block_ix];
 
   std::vector<std::vector<float> > rgb1(3, std::vector<float>(kDCTBlockSize));
   img.ToLinearRGB(xmin, ymin, 8, 8, &rgb1);
-  rgb1 = ::butteraugli::PackedFromPlanes(::butteraugli::OpsinDynamicsImage(
-      ::butteraugli::PlanesFromPacked(8, 8, rgb1)));
+  rgb1 = butteraugli::PackedFromPlanes(butteraugli::OpsinDynamicsImage(
+      butteraugli::PlanesFromPacked(8, 8, rgb1)));
 
   double b0[3 * kDCTBlockSize];
   double b1[3 * kDCTBlockSize];
@@ -521,7 +499,7 @@ void ButteraugliComparator::ComputeBlockErrorAdjustmentWeights(
   for (int block_y = 0; block_y < block_height; ++block_y) {
     for (int block_x = 0; block_x < block_width; ++block_x) {
       int block_ix = block_y * block_width + block_x;
-      float max_local_dist = static_cast<float>(target_distance);
+      float max_local_dist = target_distance;
       int x_min = std::max(0, block_x - max_block_dist);
       int y_min = std::max(0, block_y - max_block_dist);
       int x_max = std::min(block_width, block_x + 1 + max_block_dist);
@@ -549,7 +527,7 @@ void ButteraugliComparator::ComputeBlockErrorAdjustmentWeights(
             int d = std::max(std::abs(y - block_y), std::abs(x - block_x));
             int ix = y * block_width + x;
             (*block_weight)[ix] = std::max<float>(
-                (*block_weight)[ix], 1.0f / (d + 1.0f));
+                (*block_weight)[ix], 1.0 / (d + 1.0));
           }
         }
       }
@@ -560,6 +538,5 @@ void ButteraugliComparator::ComputeBlockErrorAdjustmentWeights(
 double ButteraugliComparator::ScoreOutputSize(int size) const {
   return ScoreJPEG(distance_, size, target_distance_);
 }
-
 
 }  // namespace guetzli

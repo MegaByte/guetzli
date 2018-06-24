@@ -84,6 +84,25 @@ struct JpegHistogram {
   uint32_t counts[kSize];
 };
 
+void BuildHuffmanCodeTable(const int* counts, const int* values,
+                           HuffmanCodeTable* table);
+
+bool EncodeMetadata(const JPEGData& jpg, bool strip_metadata, JPEGOutput out);
+bool EncodeDQT(const std::vector<JPEGQuantTable>& quant, JPEGOutput out);
+bool EncodeSOF(const JPEGData& jpg, JPEGOutput out);
+
+bool EncodeDHTAndSOS(const std::vector<JpegHistogram>& histograms,
+                     const std::vector<int>& histo_indexes,
+                     const std::vector<int>& component_ids,
+                     JPEGOutput out,
+                     std::vector<HuffmanCodeTable>* dc_huff_tables,
+                     std::vector<HuffmanCodeTable>* ac_huff_tables);
+
+bool EncodeScan(const JPEGData& jpg,
+                const std::vector<HuffmanCodeTable>& dc_huff_table,
+                const std::vector<HuffmanCodeTable>& ac_huff_table,
+                JPEGOutput out);
+
 void BuildDCHistograms(const JPEGData& jpg, JpegHistogram* histo);
 void BuildACHistograms(const JPEGData& jpg, JpegHistogram* histo);
 size_t JpegHeaderSize(const JPEGData& jpg, bool strip_metadata);

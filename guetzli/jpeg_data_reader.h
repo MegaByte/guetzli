@@ -42,8 +42,7 @@ enum JpegReadMode {
 bool ReadJpeg(const uint8_t* data, const size_t len, JpegReadMode mode,
               JPEGData* jpg);
 // string variant
-bool ReadJpeg(const std::string& data, JpegReadMode mode,
-              JPEGData* jpg);
+bool ReadJpeg(const std::string& data, JpegReadMode mode, JPEGData* jpg);
 
 }  // namespace guetzli
 

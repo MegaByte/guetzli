@@ -16,17 +16,15 @@
 
 #include "guetzli/output_image.h"
 
-#include <algorithm>
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
 #include <cmath>
-#include <cstdlib>
 
-#include "guetzli/idct.h"
 #include "guetzli/color_transform.h"
 #include "guetzli/dct_double.h"
 #include "guetzli/gamma_correct.h"
+#include "guetzli/idct.h"
 #include "guetzli/preprocess_downsample.h"
 #include "guetzli/quantize.h"
 
@@ -113,7 +111,7 @@ void OutputImageComponent::ToFloatPixels(float* out, int stride) const {
           int y = block_y * 8 + iy;
           int x = block_x * 8 + ix;
           if (y >= height_ || x >= width_) continue;
-          out[(y * width_ + x) * stride] = static_cast<float>(blockd[8 * iy + ix] + 128.0);
+          out[(y * width_ + x) * stride] = blockd[8 * iy + ix] + 128.0;
         }
       }
     }
@@ -248,7 +246,7 @@ OutputImage::OutputImage(int w, int h)
       components_(3, OutputImageComponent(w, h)) {}
 
 void OutputImage::CopyFromJpegData(const JPEGData& jpg) {
-  for (size_t i = 0; i < jpg.components.size(); ++i) {
+  for (int i = 0; i < jpg.components.size(); ++i) {
     const JPEGComponent& comp = jpg.components[i];
     assert(jpg.max_h_samp_factor % comp.h_samp_factor == 0);
     assert(jpg.max_v_samp_factor % comp.v_samp_factor == 0);
@@ -323,9 +321,9 @@ void OutputImage::Downsample(const DownsampleConfig& cfg) {
     components_[c].ToFloatPixels(&yuv[c][0], 1);
   }
 
-  yuv = PreProcessChannel(width_, height_, 2, 1.3f, 0.5f,
+  yuv = PreProcessChannel(width_, height_, 2, 1.3, 0.5,
                           cfg.u_sharpen, cfg.u_blur, yuv);
-  yuv = PreProcessChannel(width_, height_, 1, 1.3f, 0.5f,
+  yuv = PreProcessChannel(width_, height_, 1, 1.3, 0.5,
                           cfg.v_sharpen, cfg.v_blur, yuv);
 
   // Do the actual downsampling (averaging) and forward-DCT.
@@ -414,7 +412,7 @@ std::vector<uint8_t> OutputImage::ToSRGB(int xmin, int ymin,
   for (int c = 0; c < 3; ++c) {
     components_[c].ToPixels(xmin, ymin, xsize, ysize, &rgb[c], 3);
   }
-  for (size_t p = 0; p < rgb.size(); p += 3) {
+  for (int p = 0; p < rgb.size(); p += 3) {
     ColorTransformYCbCrToRGB(&rgb[p]);
   }
   return rgb;
@@ -430,7 +428,7 @@ void OutputImage::ToLinearRGB(int xmin, int ymin, int xsize, int ysize,
   std::vector<uint8_t> rgb_pixels = ToSRGB(xmin, ymin, xsize, ysize);
   for (int p = 0; p < xsize * ysize; ++p) {
     for (int i = 0; i < 3; ++i) {
-      (*rgb)[i][p] = static_cast<float>(lut[rgb_pixels[3 * p + i]]);
+      (*rgb)[i][p] = lut[rgb_pixels[3 * p + i]];
     }
   }
 }

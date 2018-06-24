@@ -151,7 +151,8 @@ const coeff_t kTable35[7] = { 26722, 25172, 22654, 19266, 15137, 10426, 5315 };
 #define MULT(a, b)  (a) = (((a) * (b)) >> 16)
 #define ADD(a, b)   (a) = (a) + (b)
 #define SUB(a, b)   (a) = (a) - (b)
-#define LSHIFT(a, n) (a) = ((a) << (n))
+// Shift as unsigned to avoid ubsan failure. Assumes 2's complement.
+#define LSHIFT(a, n) (a) = (int(unsigned(a) << (n)))
 #define STORE16(a, b) (a) = (b)
 #define CORRECT_LSB(a) (a) += 1
 

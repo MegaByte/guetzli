@@ -21,9 +21,7 @@
 
 #include "butteraugli/butteraugli.h"
 #include "guetzli/comparator.h"
-#include "guetzli/jpeg_data.h"
 #include "guetzli/output_image.h"
-#include "guetzli/stats.h"
 
 namespace guetzli {
 
@@ -32,19 +30,13 @@ constexpr int kButteraugliStep = 3;
 class ButteraugliComparator : public Comparator {
  public:
   ButteraugliComparator(const int width, const int height,
-                        const std::vector<uint8_t>* rgb,
-                        const float target_distance, ProcessStats* stats);
+                        const std::vector<uint8_t>& rgb,
+                        const float target_distance);
 
   void Compare(const OutputImage& img) override;
 
-  void StartBlockComparisons() override;
-  void FinishBlockComparisons() override;
-
-  void SwitchBlock(int block_x, int block_y,
-                   int factor_x, int factor_y) override;
-
-  double CompareBlock(const OutputImage& img,
-                      int off_x, int off_y) const override;
+  double CompareBlock(const OutputImage& img, int block_x,
+                      int block_y) const override;
 
   double ScoreOutputSize(int size) const override;
 
@@ -66,17 +58,11 @@ class ButteraugliComparator : public Comparator {
   const int width_;
   const int height_;
   const float target_distance_;
-  const std::vector<uint8_t>& rgb_orig_;
-  int block_x_;
-  int block_y_;
-  int factor_x_;
-  int factor_y_;
-  std::vector<::butteraugli::ImageF> mask_xyz_;
+  std::vector<butteraugli::ImageF> mask_xyz_;
   std::vector<std::vector<std::vector<float>>> per_block_pregamma_;
-  ::butteraugli::ButteraugliComparator comparator_;
+  butteraugli::ButteraugliComparator comparator_;
   float distance_;
   std::vector<float> distmap_;
-  ProcessStats* stats_;
 };
 
 }  // namespace guetzli

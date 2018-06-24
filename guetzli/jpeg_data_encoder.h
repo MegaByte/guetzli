@@ -23,7 +23,6 @@
 
 namespace guetzli {
 
-
 // Adds APP0 header data.
 void AddApp0Data(JPEGData* jpg);
 
@@ -34,7 +33,7 @@ bool EncodeRGBToJpeg(const std::vector<uint8_t>& rgb, int w, int h,
 // Creates a JPEG from the rgb pixel data. Returns true on success. The given
 // quantization table must have 3 * kDCTBlockSize values.
 bool EncodeRGBToJpeg(const std::vector<uint8_t>& rgb, int w, int h,
-                     const int* quant, JPEGData* jpg);
+                     const uint8_t* quant, JPEGData* jpg);
 
 }  // namespace guetzli
 

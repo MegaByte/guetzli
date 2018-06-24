@@ -26,9 +26,9 @@
 
 namespace guetzli {
 
-static const char* const  kNumItersCnt = "number of iterations";
-static const char* const kNumItersUpCnt = "number of iterations up";
-static const char* const kNumItersDownCnt = "number of iterations down";
+constexpr const char* kNumItersCnt = "number of iterations";
+constexpr const char* kNumItersUpCnt = "number of iterations up";
+constexpr const char* kNumItersDownCnt = "number of iterations down";
 
 struct ProcessStats {
   ProcessStats() {}

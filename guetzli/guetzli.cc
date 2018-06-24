@@ -315,7 +315,7 @@ int main(int argc, char** argv) {
       fprintf(stderr, "Memory limit would be exceeded. Failing.\n");
       return 1;
     }
-    if (!guetzli::Process(params, &stats, in_data, &out_data)) {
+    if (!guetzli::Process(params, in_data, &out_data)) {
       fprintf(stderr, "Guetzli processing failed\n");
       return 1;
     }

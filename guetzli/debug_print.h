@@ -25,16 +25,12 @@ void PrintDebug(ProcessStats* stats, std::string s);
 
 }  // namespace guetzli
 
-#define GUETZLI_LOG(stats, ...)                                    \
-  do {                                                             \
-    char debug_string[1024];                                       \
-    int res = snprintf(debug_string, sizeof(debug_string),         \
-                       __VA_ARGS__);                               \
-    assert(res > 0 && "expected successful printing");             \
-    (void)res;                                                     \
-    debug_string[sizeof(debug_string) - 1] = '\0';                 \
-    ::guetzli::PrintDebug(                      \
-         stats, std::string(debug_string));        \
+#define GUETZLI_LOG(stats, ...)                                   \
+  do {                                                            \
+    char debug_string[1024];                                      \
+    snprintf(debug_string, sizeof(debug_string), __VA_ARGS__);    \
+    debug_string[sizeof(debug_string) - 1] = '\0';                \
+    ::guetzli::PrintDebug(stats, std::string(debug_string)); \
   } while (0)
 #define GUETZLI_LOG_QUANT(stats, q)                    \
   for (int y = 0; y < 8; ++y) {                        \
